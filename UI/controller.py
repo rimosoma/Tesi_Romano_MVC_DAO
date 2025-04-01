@@ -8,10 +8,24 @@ class Controller:
         # the model, which implements the logic of the program and holds the data
         self._model = model
 
-    def handle_hello(self, e):
-        name = self._view.txt_name.value
-        if name is None or name == "":
-            self._view.create_alert("Inserire il nome")
-            return
-        self._view.txt_result.controls.append(ft.Text(f"Hello, {name}!"))
-        self._view.update_page()
+
+    def popolaTendinaAnno(self):
+        anni = self._model.getAnni()
+        for anno in anni:
+            self._view.tendinaAnno.controls.append(ft.dropdown.Option(anno))
+
+    def popolaTendinaBrand(self):
+        brands = self._model.getBrands()
+        for brand in brands:
+            self._view.tendinaBrand.controls.append(ft.dropdown.Option(brand))
+
+    def popolaTendinaRivenditore(self):
+        rivenditori = self._model.getRivenditori()
+        for rivenditore in rivenditori:
+            self._view.tendinaRivenditore.controls.append(ft.dropdown.Option(rivenditore))
+
+    def getMigliori(self, e):
+        pass
+
+    def getAnalisi(self, e):
+        pass
