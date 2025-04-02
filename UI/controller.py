@@ -9,23 +9,52 @@ class Controller:
         self._model = model
 
 
+    #VARIABILI UTILI PER L'ANALISI
+        self.anno = None
+        self.brand = None
+        self.rivenditore = None
+
+
+#ANNO
     def popolaTendinaAnno(self):
         anni = self._model.getAnni()
         for anno in anni:
-            self._view.tendinaAnno.controls.append(ft.dropdown.Option(anno))
+            self._view.tendinaAnno.options.append(ft.dropdown.Option(anno))
 
+    def setAnno(self, e):
+        self.anno = int(e.control.value)
+        print(self.anno)
+
+
+#BRAND
     def popolaTendinaBrand(self):
         brands = self._model.getBrands()
         for brand in brands:
-            self._view.tendinaBrand.controls.append(ft.dropdown.Option(brand))
+            self._view.tendinaBrand.options.append(ft.dropdown.Option(brand))
 
+    def setBrand(self, e):
+        self.brand = e.control.value
+        print(e.control.value)
+
+
+
+#RIVENDITORE
     def popolaTendinaRivenditore(self):
         rivenditori = self._model.getRivenditori()
-        for rivenditore in rivenditori:
-            self._view.tendinaRivenditore.controls.append(ft.dropdown.Option(rivenditore))
+        for codice,rivenditore in rivenditori.items():
+            self._view.tendinaRivenditore.options.append(ft.dropdown.Option(key=codice, text=rivenditore))
 
-    def getMigliori(self, e):
+    def setRivenditore(self, e):
+        self.rivenditore = e.control.value #dovrebbe darmi il codice
+        print(e.control.value)
+
+
+
+
+
+
+  #def getMigliori(self, e):
         pass
 
-    def getAnalisi(self, e):
+  #def getAnalisi(self, e):
         pass

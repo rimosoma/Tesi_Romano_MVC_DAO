@@ -33,11 +33,20 @@ class View(ft.UserControl):
 
 
         # PRIMA RIGA
-        self.tendinaAnno = ft.Dropdown(label="Tendina Anno", options=[])
+        self.tendinaAnno = ft.Dropdown(label="Tendina Anno",
+                                       options=[],
+                                       on_change= self._controller.setAnno)
+        self._page.update()
         self._controller.popolaTendinaAnno()
-        self.tendinaBrand = ft.Dropdown(label="Tendina Brand", options=[])
+        self.tendinaBrand = ft.Dropdown(label="Tendina Brand",
+                                        options=[],
+                                        on_change= self._controller.setBrand)
+        self._page.update()
         self._controller.popolaTendinaBrand()
-        self.tendinaRivenditore = ft.Dropdown(label="Tendina Rivenditore", options=[])
+        self.tendinaRivenditore = ft.Dropdown(label="Tendina Rivenditore",
+                                              options=[],
+                                              on_change= self._controller.setRivenditore)
+        self._page.update()
         self._controller.popolaTendinaRivenditore()
         self.row1 = ft.Row(controls=[self.tendinaAnno, self.tendinaBrand, self.tendinaRivenditore])
         self._page.controls.append(self.row1)
@@ -45,10 +54,12 @@ class View(ft.UserControl):
 
 
         #SECONDA RIGA
-        self.btnMigliori = ft.ElevatedButton(text="Migliori vendite", on_click=self._controller.getMigliori())
-        self.btnAnalisi = ft.ElevatedButton(text="Analisi vendite", on_click=self._controller.getAnalisi())
-        self.row2 = ft.Row(controls=[self.btnMigliori, self.btnAnalisi])
-        self._page.controls.append(self.row2)
+        #self.btnMigliori = ft.ElevatedButton(text="Migliori vendite", on_click=self._controller.getMigliori())
+        #self.btnAnalisi = ft.ElevatedButton(text="Analisi vendite", on_click=self._controller.getAnalisi())
+        #self.row2 = ft.Row(controls=[self.btnMigliori, self.btnAnalisi])
+        #self._page.controls.append(self.row2)
+
+
 
 
 

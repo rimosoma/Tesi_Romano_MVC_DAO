@@ -12,4 +12,4 @@ class Model:
         return DAO.getDAOBrands()
 
     def getRivenditori(self):
-        return DAO.getDAORivenditori()
+        return DAO.getDAODictRivenditori()
