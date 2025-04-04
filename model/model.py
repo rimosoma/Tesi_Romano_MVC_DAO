@@ -13,3 +13,11 @@ class Model:
 
     def getRivenditori(self):
         return DAO.getDAODictRivenditori()
+
+
+    def getMiglioriModel(self,anno,brand,rivenditore ):
+        return DAO.getDAOMigliori(anno,brand,rivenditore)
+
+
+    def getAnalisiModel(self,anno,brand,rivenditore ):
+        return DAO.getDAOAnalisi(anno,brand,rivenditore)

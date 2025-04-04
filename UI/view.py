@@ -25,6 +25,8 @@ class View(ft.UserControl):
         self.btnMigliori = None
         self.btnAnalisi = None
 
+        self.console = None
+
     def load_interface(self):
         # title
         self._title = ft.Text("Analizza Vendite", color="blue", size=24)
@@ -34,17 +36,17 @@ class View(ft.UserControl):
 
         # PRIMA RIGA
         self.tendinaAnno = ft.Dropdown(label="Tendina Anno",
-                                       options=[],
+                                       options=[ft.dropdown.Option(key=0, text="NESSUNA SCELTA"),],
                                        on_change= self._controller.setAnno)
         self._page.update()
         self._controller.popolaTendinaAnno()
         self.tendinaBrand = ft.Dropdown(label="Tendina Brand",
-                                        options=[],
+                                        options=[ft.dropdown.Option(key="nessuno", text="NESSUNA SCELTA"),],
                                         on_change= self._controller.setBrand)
         self._page.update()
         self._controller.popolaTendinaBrand()
         self.tendinaRivenditore = ft.Dropdown(label="Tendina Rivenditore",
-                                              options=[],
+                                              options=[ft.dropdown.Option(key=0, text="NESSUNA SCELTA"),],
                                               on_change= self._controller.setRivenditore)
         self._page.update()
         self._controller.popolaTendinaRivenditore()
@@ -53,12 +55,17 @@ class View(ft.UserControl):
         self._page.update()
 
 
-        #SECONDA RIGA
-        #self.btnMigliori = ft.ElevatedButton(text="Migliori vendite", on_click=self._controller.getMigliori())
-        #self.btnAnalisi = ft.ElevatedButton(text="Analisi vendite", on_click=self._controller.getAnalisi())
-        #self.row2 = ft.Row(controls=[self.btnMigliori, self.btnAnalisi])
-        #self._page.controls.append(self.row2)
+    #SECONDA RIGA
+        self.btnMigliori = ft.ElevatedButton(text="Migliori vendite", on_click=self._controller.getMigliori, visible=False)
+        self.btnAnalisi = ft.ElevatedButton(text="Analisi vendite", on_click=self._controller.getAnalisi, visible=False)
+        self.row2 = ft.Row(controls=[self.btnMigliori, self.btnAnalisi])
+        self._page.controls.append(self.row2)
+        self._page.update()
 
+    #CONSOLE
+        self.console = ft.ListView(expand=1, spacing=10, padding=20, auto_scroll=True)
+        self._page.controls.append(self.console)
+        self._page.update()
 
 
 

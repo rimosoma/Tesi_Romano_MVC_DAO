@@ -23,7 +23,10 @@ class Controller:
 
     def setAnno(self, e):
         self.anno = int(e.control.value)
-        print(self.anno)
+        if self.anno is not None and self.brand is not None and self.rivenditore is not None:
+            self._view.btnMigliori.visible = True
+            self._view.btnAnalisi.visible = True
+            self._view._page.update()
 
 
 #BRAND
@@ -34,8 +37,10 @@ class Controller:
 
     def setBrand(self, e):
         self.brand = e.control.value
-        print(e.control.value)
-
+        if self.anno is not None and self.brand is not None and self.rivenditore is not None:
+            self._view.btnMigliori.visible = True
+            self._view.btnAnalisi.visible = True
+            self._view._page.update()
 
 
 #RIVENDITORE
@@ -46,15 +51,19 @@ class Controller:
 
     def setRivenditore(self, e):
         self.rivenditore = e.control.value #dovrebbe darmi il codice
-        print(e.control.value)
+        if self.anno is not None and self.brand is not None and self.rivenditore is not None:
+            self._view.btnMigliori.visible = True
+            self._view.btnAnalisi.visible = True
+            self._view._page.update()
 
 
+    def getMigliori(self, e):
+        lista = self._model.getMiglioriModel(self.anno, self.brand, self.rivenditore)
+        for riga in lista:
+            self._view.console.controls.append(riga)
 
 
-
-
-  #def getMigliori(self, e):
-        pass
-
-  #def getAnalisi(self, e):
-        pass
+    def getAnalisi(self, e):
+        lista = self._model.getAnalisiModel(self.anno, self.brand, self.rivenditore)
+        for riga in lista:
+            self._view.console.controls.append(riga)
