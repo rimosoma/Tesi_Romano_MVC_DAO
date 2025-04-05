@@ -51,23 +51,24 @@ class DAO():
     @staticmethod
     def getDAOMigliori(anno,brand,rivenditore):
         cnx = DBConnect.get_connection()
-        cursor = cnx.cursor(dictionary=True)        #non serve
-        query =("SELECT v.Product_number,r.Retailer_code , p.Product_brand , v.unit_sale_price, v.quantity,(v.unit_sale_price * v.quantity) AS ricavo,v.Date"
-                "FROM go_daily_sales v"
-                "JOIN go_products p ON v.Product_number = p.Product_number"
-                "JOIN go_retailers r ON v.Retailer_code = r.Retailer_code"
-                "WHERE"
-                "(%s IS NULL OR EXTRACT(YEAR FROM v.data_vendita) = %s)"
-                "AND (%s IS NULL OR v.codiceRivenditore = %s)"
-                "AND (%s IS NULL OR p.brand = %s)"
-                "ORDER BY ricavo DESC"
+        cursor = cnx.cursor(dictionary = True)        #non serve
+        print(anno,brand,rivenditore)
+        query =("SELECT v.Product_number,r.Retailer_code ,(v.unit_sale_price * v.quantity) AS ricavo,v.Date "
+                "FROM go_daily_sales v "
+                "JOIN go_products p ON v.Product_number = p.Product_number "
+                "JOIN go_retailers r ON v.Retailer_code = r.Retailer_code "
+                "WHERE(%s IS NULL OR YEAR(v.Date) = %s) "
+                "AND (%s IS NULL OR v.Retailer_code = %s) "
+                "AND (%s IS NULL OR p.Product_brand = %s) "
+                "ORDER BY ricavo DESC "
                 "LIMIT 5;")
-        cursor.execute(query, (anno, anno,rivenditore, rivenditore,brand, brand,))
+        cursor.execute(query, (anno, anno, rivenditore, rivenditore,brand, brand,))
         rows = cursor.fetchall()
         res = []
         for row in rows:
             res.append([f"Data: {row["Date"]}", f"Ricavo: {row["ricavo"]}", f"Prodotto: {row["Product_number"]}", f"Rivenditore: {row["Retailer_code"]}"])
         cnx.close()
+        print(f"res: {res}")
         return res
 
     @staticmethod
@@ -80,13 +81,13 @@ class DAO():
                 "COUNT(DISTINCT v.Product_number) AS numero_prodotti "
                 "FROM go_daily_sales v "
                 "JOIN go_products p ON v.Product_number = p.Product_number "
-                "WHERE (%s IS NULL OR EXTRACT(YEAR FROM v.data_vendita) = %s) "
-                "AND (%s IS NULL OR v.codiceRivenditore = %s) "
-                "AND (%s IS NULL OR p.brand = %s);")
-
+                "WHERE(%s IS NULL OR YEAR(v.Date) = %s) "
+                "AND (%s IS NULL OR v.Retailer_code = %s) "
+                "AND (%s IS NULL OR p.Product_brand = %s);")
 
         cursor.execute(query, (anno, anno, rivenditore, rivenditore,brand, brand))
         rows = cursor.fetchall()
+        print(rows)
         res = []
         for row in rows:
             res.append("Statistiche Vendite:")
@@ -94,5 +95,6 @@ class DAO():
             res.append(f"Nr vendite = {row["numero_vendite"]}")
             res.append(f"Nr Rivenditori coinvolti = {row["numero_rivenditori"]}")
             res.append(f"Nr Prodotti coinvolti = {row["numero_prodotti"]}")
+        print(res)
         cnx.close()
         return res
