@@ -46,13 +46,13 @@ class Controller:
         # (Re)popola i dati salvati
         nv.load_interface()
 
-        # metti in overlay se non già presente
+        # mette in overlay se non già presente
         if nv not in page.overlay:
             page.overlay.append(nv)
             page.update()
 
     def chiudi_necessita(self, page, emp_id):
-        # rimuovi la view dal dizionario e dall'overlay
+        # rimuove la view dal dizionario e dall'overlay
         if emp_id in self._necessita_views:
             nv = self._necessita_views.pop(emp_id)
             if nv in page.overlay:
@@ -60,8 +60,7 @@ class Controller:
                 page.update()
 
 
-    # Potresti voler aggiungere un metodo per leggere i dati inseriti nei calendari
+    # Per aggiungere un metodo per leggere i dati inseriti nei calendari
     def salva_necessita(self, emp_id, tipo, giorno, valore):
-        # Metodo da implementare secondo la tua logica applicativa
         print(f"Salvataggio: emp_id={emp_id}, tipo={tipo}, giorno={giorno}, valore={valore}")
 
