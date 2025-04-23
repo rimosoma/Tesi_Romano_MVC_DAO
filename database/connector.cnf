@@ -2,4 +2,4 @@
 host=localhost
 user=root
 password=rivoli2003
-database=go_sales
+database=turni_db
