@@ -1,3 +1,4 @@
+from cProfile import label
 from tkinter.constants import CENTER
 
 import flet
@@ -21,14 +22,9 @@ class View(flet.UserControl):
 
 
         self._title = None
-        self._constraint_types = [
-            ("mutua_infortunio", "Mutua/Infortunio"),
-            ("permessi_ferie", "Permessi/Ferie"),
-            ("non_retribuite", "Esigenze non retribuite"),
-            ("no_mattino", "No Mattino"),
-            ("no_pomeriggio", "No Pomeriggio"),
-            ("no_notte", "No Notte")
-        ]
+
+
+
 
     def _load_interface(self):
         self._page.controls.clear()
@@ -108,9 +104,19 @@ class View(flet.UserControl):
 
         dipendenti = list(self._controller.get_employees().values())
 
+
         for emp in dipendenti:
             shifts = self._controller.get_turni_counts(emp.id)
             #btn = self._create_settings_button(emp)
+            cek1 = Checkbox(label="SI", value=True if emp.daIncludere =="SI" else False,
+                                         on_change=lambda e, emp_id=emp.id: self._controller.update_daIncludere(emp_id,"SI",e))
+
+            cek2 = Checkbox(label="MAT",value=True if emp.daIncludere =="MAT" else False,
+                                         on_change=lambda e, emp_id=emp.id: self._controller.update_daIncludere(emp_id,"MAT", e))
+
+            cek3 = Checkbox(label="ASP",value=True if emp.daIncludere =="ASP" else False,
+                                         on_change=lambda e, emp_id=emp.id: self._controller.update_daIncludere(emp_id,"ASP",e))
+
 
             # Una sola riga completa, con esattamente 7 celle:
             row = DataRow(cells=[
@@ -128,13 +134,13 @@ class View(flet.UserControl):
                     flet.Container(
                         content=flet.Row(
                             controls=[
-                                Checkbox(label="SI", value=True,
+                                Checkbox(label="SI", value=True if emp.daIncludere =="SI" else False,
                                          on_change=lambda e, emp_id=emp.id: self._controller.update_no_mattino(emp_id,
                                                                                                                e.control.value)),
-                                Checkbox(label="MAT",
+                                Checkbox(label="MAT",value=True if emp.daIncludere =="MAT" else False,
                                          on_change=lambda e, emp_id=emp.id: self._controller.update_no_pomeriggio(
                                              emp_id, e.control.value)),
-                                Checkbox(label="ASP",
+                                Checkbox(label="ASP",value=True if emp.daIncludere =="ASP" else False,
                                          on_change=lambda e, emp_id=emp.id: self._controller.update_no_notte(emp_id,
                                                                                                              e.control.value)),
                             ],
@@ -152,11 +158,13 @@ class View(flet.UserControl):
                 DataCell(
                     flet.Container(
                         content=flet.Dropdown(
-                            value=str(shifts.get('notte', 0)),
-                            options=[flet.dropdown.Option(str(i)) for i in range(0, 8)],
+                            value=str(emp.notti),
+                            options=[flet.dropdown.Option(str(i)) for i in range(0, (5-int(emp.pomeriggi)-int(emp.mattini))+1)],
                             expand=True,  # Adatta il dropdown al contenitore
                             dense=True,  # Compatta leggermente il contenuto
                             text_style=flet.TextStyle(size=12),  # Assicura leggibilità
+                            on_change=lambda e, emp_id=emp.id:
+                            self._controller.updateNrNotti(emp_id, e)
                         ),
                         padding=5,
                         alignment=flet.alignment.center,
@@ -168,11 +176,13 @@ class View(flet.UserControl):
                 DataCell(
                     flet.Container(
                         content=flet.Dropdown(
-                            value=str(shifts.get('mattino', 0)),
-                            options=[flet.dropdown.Option(str(i)) for i in range(0, 8)],
+                            value=str(emp.mattini),
+                            options=[flet.dropdown.Option(str(i)) for i in range(0,  (5-int(emp.pomeriggi)-int(emp.notti))+1)],
                             expand=True,  # Adatta il dropdown al contenitore
                             dense=True,  # Compatta leggermente il contenuto
                             text_style=flet.TextStyle(size=12),  # Assicura leggibilità
+                            on_change=lambda e, emp_id=emp.id:
+                            self._controller.updateNrMattini(emp_id, e)
                         ),
                         padding=5,
                         alignment=flet.alignment.center,
@@ -182,11 +192,13 @@ class View(flet.UserControl):
                 DataCell(
                     flet.Container(
                         content=flet.Dropdown(
-                            value=str(shifts.get('pomeriggio', 0)),
-                            options=[flet.dropdown.Option(str(i)) for i in range(0, 8)],
+                            value=str(emp.pomeriggi),
+                            options=[flet.dropdown.Option(str(i)) for i in range(0,  (5-int(emp.notti)-int(emp.mattini))+1)],
                             expand=True,  # Adatta il dropdown al contenitore
                             dense=True,  # Compatta leggermente il contenuto
                             text_style=flet.TextStyle(size=12),  # Assicura leggibilità
+                            on_change=lambda e, emp_id=emp.id:
+                            self._controller.updateNrPomeriggi(emp_id, e)
                         ),
                         padding=5,
                         alignment=flet.alignment.center,
@@ -222,6 +234,8 @@ class View(flet.UserControl):
 
 
 
+
+
     def set_controller(self, controller: Controller):
         # Assegna il controller e costruisci l'interfaccia
         self._controller = controller
@@ -237,6 +251,9 @@ class View(flet.UserControl):
     def update_page(self):
         self._page.update()
 
+    def update_table_view(self):
+        self._page.update()
+        self._load_interface()
 
 
     def _generate_turns(self, e):

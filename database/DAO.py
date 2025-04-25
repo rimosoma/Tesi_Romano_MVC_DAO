@@ -17,7 +17,7 @@ class Dao:
         rows = self.cursor.fetchall()
         res = {}
         for row in rows:
-            res[row["id"]] = (Dipendente(row["id"], row["nome"], row["cognome"], row["in_vacation"]))
+            res[row["id"]] = (Dipendente(row["id"],"SI" ,row["in_vacation"],row["nome"], row["cognome"],0,2,3 ))
         return res
 
     def get_turni_counts(self, emp_id: int):

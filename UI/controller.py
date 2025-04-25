@@ -2,21 +2,51 @@ import flet
 
 from UI.dialog_necessita import Necessita
 from model.model import Model
-
+from UI import view
 class Controller:
     """
     Gestisce l'interazione tra view e model.
     """
     def __init__(self, view, model):
         self.model = Model()
+        self.view = view
           # Dizionario che tiene traccia delle istanze Necessita per ogni dipendente
         self._necessita_views = {}
 
     def get_employees(self):
+        dict = self.model.get_employees()
+        for employee in dict:
+            print(dict[employee].id, dict[employee].nome, dict[employee].cognome, dict[employee].notti, dict[employee].mattini, dict[employee].pomeriggi)
         return self.model.get_employees()
 
     def get_turni_counts(self, emp_id):
         return self.model.get_turni_counts(emp_id)
+
+
+    def update_daIncludere(self,tipo, emp_id, e):
+        if e.control.value:
+            self.model.updateDaIncludere(emp_id,tipo)
+
+
+    def updateNrNotti(self, emp_id,e):
+        if self.model.updateNrNotti(emp_id,e.control.value):
+            self.aggiornaTabView()
+
+
+    def updateNrMattini(self, emp_id,e):
+        if self.model.updateNrMattini(emp_id,e.control.value):
+            self.aggiornaTabView()
+
+
+    def updateNrPomeriggi(self, emp_id,e):
+        if self.model.updateNrPomeriggi(emp_id,e.control.value):
+            self.aggiornaTabView()
+
+    def aggiornaTabView(self):
+        self.view.update_table_view()
+
+
+
 
     def generate_turni(self):
         return self.model.generate_turni()
@@ -63,4 +93,5 @@ class Controller:
     # Per aggiungere un metodo per leggere i dati inseriti nei calendari
     def salva_necessita(self, emp_id, tipo, giorno, valore):
         print(f"Salvataggio: emp_id={emp_id}, tipo={tipo}, giorno={giorno}, valore={valore}")
+
 

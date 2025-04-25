@@ -9,9 +9,27 @@ class Model:
         # Configurazione DB, da parametrizzare esternamente
         self.dao = Dao()
         self.turni = []  # lista di turni generati
+        self.dictDipendenti = self.dao.get_employees()
 
     def get_employees(self):
-        return self.dao.get_employees()
+        return self.dictDipendenti
+
+    def updateNrNotti(self,emp_id,nr):
+        self.dictDipendenti[emp_id].setNotti(nr)
+        return True
+
+    def updateNrMattini(self,emp_id,nr):
+        self.dictDipendenti[emp_id].setMattini(nr)
+        return True
+
+    def updateNrPomeriggi(self, emp_id,nr):
+        self.dictDipendenti[emp_id].setPomeriggi(nr)
+        return True
+
+
+
+
+
 
     def get_turni_counts(self, emp_id):
         return self.dao.get_turni_counts(emp_id)
