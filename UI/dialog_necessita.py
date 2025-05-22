@@ -1,5 +1,6 @@
 # necessita.py
 
+import calendar
 import flet
 from flet import (
     UserControl,
@@ -15,15 +16,11 @@ from flet import (
     DataCell,
     Checkbox,
 )
-import calendar
-
-from flet_core import IconButton, icons, Row, Stack, Container, colors, ThemeMode, Theme
-from flet_core.colors import PURPLE, BLACK, GREY_50, GREY_100
-from flet_core.icons import LIGHT
+from flet_core import IconButton, icons, Row, Stack, Container, colors, MainAxisAlignment
 
 
 class Necessita(UserControl):
-    def __init__(self, page: Page, emp_id):
+    def __init__(self, page: Page, emp_id, mese):
         super().__init__()
         self.page = page
         self.page.title = "Gestione Necessità"
@@ -31,17 +28,19 @@ class Necessita(UserControl):
         self.page.theme_mode = flet.ThemeMode.DARK
         self.emp_id = emp_id
 
+        month_str, year_str = mese.split("-")
+        self.month = int(month_str)
+        self.year = int(year_str)
+
         # Controller verrà assegnato dopo
         self.controller = None
 
-        # Imposta un mese arbitrario (modificabile)
-        self.year = 2025
-        self.month = 7
+        # Mese/anno arbitrario
+
         self.weeks = calendar.monthcalendar(self.year, self.month)
         self.weekday_names = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
 
-        # Definizione dei sei tipi di esigenza:
-        # (chiave, etichetta, nome metodo setter nel controller)
+        # Sei tipi di esigenza: (chiave, etichetta, nome metodo setter nel controller)
         self.constraint_types = [
             ("permessi_ferie",   "Permessi/Ferie",          "set_permessi_constraint"),
             ("mutua_infortunio", "Mutua/Infortunio",        "set_mutua_constraint"),
@@ -51,7 +50,7 @@ class Necessita(UserControl):
             ("no_notte",         "No Notte",                "set_no_notte_constraint"),
         ]
 
-        # Colonna principale che build() restituirà
+        # Colonna principale
         self.main_column = Column(expand=True, scroll="AUTO")
 
     def set_controller(self, controller):
@@ -64,37 +63,35 @@ class Necessita(UserControl):
         if not self.controller:
             raise RuntimeError("Controller non impostato su Necessita")
 
-        # Pulisce e costruisce da zero
         self.main_column.controls.clear()
 
-        # Titolo
+        # Header con titolo e pulsante chiudi
         header = Row([
-            Text(f"Necessità di Emp #{self.emp_id} – {calendar.month_name[self.month]} {self.year}", size=20),
-            IconButton(icon=icons.CLOSE_ROUNDED, tooltip="Chiudi",
-                       on_click=lambda e: self.controller.chiudi_necessita(self.page, self.emp_id))
-        ], alignment=flet.MainAxisAlignment.SPACE_AROUND)
+            Text(f"Necessità Emp #{self.emp_id} – {calendar.month_name[self.month]} {self.year}", size=20),
+            IconButton(
+                icon=icons.CLOSE_ROUNDED,
+                tooltip="Chiudi",
+                on_click=lambda e: self.controller.chiudi_necessita(self.page, self.emp_id)
+            )
+        ], alignment=MainAxisAlignment.SPACE_BETWEEN)
         self.main_column.controls.append(header)
         self.main_column.controls.append(Divider())
 
-        # Crea un Tab per ciascun tipo di esigenza
+        # Costruzione dei Tabs
         tabs = []
         for key, label, setter_name in self.constraint_types:
-            tabs.append(
-                Tab(
-                    text=label,
+            tabs.append(Tab(
+                text=label,
+                content=self._build_calendar_table(key, setter_name)
+            ))
 
-                    content=self._build_calendar_table(setter_name)
-
-                )
-            )
-
-        # Aggiunge i Tabs
+        # Inserimento dei Tabs
         self.main_column.controls.append(
             Column([
                 Tabs(
                     selected_index=0,
                     tabs=tabs,
-                    divider_color=PURPLE,
+                    divider_color=colors.PURPLE,
                     scrollable=True,
                     animation_duration=300,
                     height=250
@@ -105,66 +102,75 @@ class Necessita(UserControl):
 
         self.update()
 
-    def _build_calendar_table(self, setter_method_name: str) -> DataTable:
+    def _build_calendar_table(self, constraint_key: str, setter_method_name: str) -> DataTable:
         """
         Costruisce un DataTable 7xN per il mese.
-        Ogni cella è un Checkbox inizialmente False.
-        Alla modifica, chiama:
-          self.controller.<setter_method_name>(year, month, day, value)
+        Ogni cella è un Checkbox il cui valore iniziale viene preso
+        da self.controller.get_employee(emp_id).dizionarioNecessita[constraint_key][day].
+        Alla modifica, chiama self.controller.<setter_method_name>(emp_id, day, valore).
         """
         # Intestazioni Lunedì–Domenica
         columns = [DataColumn(Text(d)) for d in self.weekday_names]
 
-        # Costruzione delle righe settimanali
+        # Preleva il dict delle necessità dal model via controller
+        emp = self.controller.get_employee(self.emp_id)
+        #print(emp)
+        day_dict = emp.dizionarioNecessita.get(constraint_key, {})
+
         rows = []
         for week in self.weeks:
             cells = []
             for day in week:
                 if day == 0:
-                    # Giorni fuori mese
                     cells.append(DataCell(Text("")))
                 else:
+                    # valore iniziale (False se non trovato)
+                    initial = day_dict.get(day, False)
+
+                    # factory per catturare day, setter E IL SUO VALORE
+                    def make_on_change(current_day, setter):  # Aggiunto current_day
+                        def _on_change(e):
+                            # Passa il numero del giorno (int) e il valore (bool)
+                            # non l'oggetto evento 'e' completo.
+                            getattr(self.controller, setter)(self.emp_id, current_day,
+                                                             e.control.value)  # <--- MODIFICA QUI
+                            self.page.update()
+
+                        return _on_change
+
                     chk = Checkbox(
-                        value=False,
-                        label=day,
-                        on_change=lambda e, d=day, m=setter_method_name:
-                            [getattr(self.controller, m)(self.year, self.month, d, e.control.value), self.page.update()]
+                        value=initial,
+                        label=str(day),
+                        on_change=make_on_change(day, setter_method_name)  # <--- MODIFICA QUI: Passa 'day'
                     )
                     cells.append(DataCell(chk))
             rows.append(DataRow(cells=cells))
 
         return DataTable(
-
             columns=columns,
             rows=rows,
             heading_row_height=30,
-            data_row_min_height=30,  # Riduci l'altezza
+            data_row_min_height=30,
             data_row_max_height=30,
             horizontal_lines={"color": "grey"},
             vertical_lines={"color": "grey"},
-            horizontal_margin=10,  # Aggiungi margini
+            horizontal_margin=10,
             column_spacing=10,
+            expand=True
         )
 
     def build(self):
         """Restituisce il layout principale da inserire nella page."""
-        # sfondo semi-trasparente
         barrier = Container(
             expand=True,
             bgcolor=colors.BLACK54
         )
-
-        # card centrale con tema light forzato
         card = Container(
             content=self.main_column,
             width=900,
             padding=20,
             bgcolor=colors.BACKGROUND,
-            border_radius=10,
-            #theme_mode=ThemeMode.LIGHT  # imposta questo container in tema chiaro
+            border_radius=10
         )
-
-        # centra il card
         centered = Row([card], alignment="CENTER", expand=True)
-
         return Stack([barrier, centered])
