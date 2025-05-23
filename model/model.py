@@ -206,172 +206,324 @@ class SchedulingModel:
                 return True
 
     def genera_turni_mese(self):
-        # --- 1) Prepara i dati di base ---
+        """
+        Genera i turni mensili usando CP-SAT con vincoli rigidi e preferenze soft.
+        """
+        import calendar
+        import datetime
+        from collections import defaultdict
+        import pandas as pd
+        from openpyxl.styles import PatternFill, Alignment, Font
+        from openpyxl.utils import get_column_letter
+        from ortools.sat.python import cp_model
+
+        # --- 1) PREPARAZIONE DATI ---
         year, month = self.current_year, self.current_month
         dim = calendar.monthrange(year, month)[1]
         days = [datetime.date(year, month, d) for d in range(1, dim + 1)]
-        shift_types_8h = ['mat_1', 'mat_2', 'mat_3', 'mat_4', 'pom_1', 'pom_2', 'pom_3', 'notte']
-        shift_types_3h = ['mj', 'pc']
-        all_shifts = shift_types_8h + shift_types_3h
 
-        employees = {eid: d for eid, d in self.dictDipendenti.items()
-                     if d.daIncludere not in ['maternità', 'aspettativa']}
+        # Tipi di turno
+        shift_types_mattina = ['mat_1', 'mat_2', 'mat_3', 'mat_4']
+        shift_types_pomeriggio = ['pom_1', 'pom_2', 'pom_3']
+        shift_types_notte = ['notte']
+        shift_types_corti = ['mj', 'pc']  # turni da 3 ore
+        all_shifts = shift_types_mattina + shift_types_pomeriggio + shift_types_notte + shift_types_corti
 
-        # --- 2) Costruisci il modello CP-SAT ---
+        # Dipendenti attivi (esclusi maternità/aspettativa)
+        employees = {eid: dip for eid, dip in self.dictDipendenti.items()
+                     if dip.daIncludere not in ['MT', 'ASP']}
+
+        if not employees:
+            raise RuntimeError("Nessun dipendente attivo per generare turni")
+
+        # Raggruppa giorni per settimana ISO
+        weeks = defaultdict(list)
+        for d in days:
+            week_num = d.isocalendar()[1]
+            weeks[week_num].append(d)
+
+        print(f"Generazione turni per {len(employees)} dipendenti, {dim} giorni, {len(weeks)} settimane")
+
+        # --- 2) CREAZIONE MODELLO CP-SAT ---
         model = cp_model.CpModel()
-        x = {}  # x[(eid,day,shift)] = BoolVar
-        is_assigned = {}
-        has_rest = {}
 
-        # Base: ogni employee in ogni giorno o lavora (1 turno) o riposa
-        for eid, dip in employees.items():
-            for d in days:
-                a = model.NewBoolVar(f"asgn_{eid}_{d}")
-                r = model.NewBoolVar(f"rest_{eid}_{d}")
-                model.Add(a + r == 1)
-                is_assigned[(eid, d)] = a
-                has_rest[(eid, d)] = r
+        # Variabili principali
+        x = {}  # x[(emp_id, day, shift)] = 1 se dipendente fa quel turno quel giorno
+        has_rest = {}  # has_rest[(emp_id, day)] = 1 se dipendente riposa quel giorno
+        has_vacation = {}  # has_vacation[(emp_id, day)] = 1 se dipendente ha ferie/mutua/nr
 
-                for s in all_shifts:
-                    b = model.NewBoolVar(f"x_{eid}_{d}_{s}")
-                    x[(eid, d, s)] = b
-                # se assegnato, esattamente un turno; se no, nessuno
-                model.Add(sum(x[(eid, d, s)] for s in all_shifts) == a)
+        # Creazione variabili
+        for emp_id in employees:
+            for day in days:
+                # Variabile riposo
+                has_rest[(emp_id, day)] = model.NewBoolVar(f'rest_{emp_id}_{day.day}')
 
-        # Copertura: ogni turno ogni giorno esattamente da 1 persona
-        for d in days:
-            for s in all_shifts:
-                model.AddExactlyOne(x[(eid, d, s)] for eid in employees)
+                # Variabile ferie/mutua/non_retribuite
+                has_vacation[(emp_id, day)] = model.NewBoolVar(f'vacation_{emp_id}_{day.day}')
 
-        # Quotes settimanali ≤ esigenze
-        weeks = defaultdict(list)
-        for d in days:
-            w = d.isocalendar()[1]
-            weeks[w].append(d)
-        for eid, dip in employees.items():
-            m_quota = int(dip.esigenzeMattiniSettimanali)
-            p_quota = int(dip.esigenzePomeriggiSettimanali)
-            n_quota = int(dip.esigenzeNottiSettimanali)
-            for wdays in weeks.values():
-                m_vars = [x[(eid, d, s)] for d in wdays for s in shift_types_8h[:4]]
-                p_vars = [x[(eid, d, s)] for d in wdays for s in shift_types_8h[4:7]]
-                n_vars = [x[(eid, d, 'notte')] for d in wdays]
-                if m_vars: model.Add(sum(m_vars) <= m_quota)
-                if p_vars: model.Add(sum(p_vars) <= p_quota)
-                if n_vars: model.Add(sum(n_vars) <= n_quota)
+                # Variabili turni lavorativi
+                for shift in all_shifts:
+                    x[(emp_id, day, shift)] = model.NewBoolVar(f'work_{emp_id}_{day.day}_{shift}')
 
-        # --- 3) Risolvi ---
+        # --- 3) VINCOLI RIGIDI ---
+
+        # 3.1) Esclusività giornaliera: ogni dipendente fa esattamente una cosa al giorno
+        for emp_id in employees:
+            for day in days:
+                all_day_vars = [has_rest[(emp_id, day)], has_vacation[(emp_id, day)]]
+                all_day_vars.extend([x[(emp_id, day, shift)] for shift in all_shifts])
+                model.AddExactlyOne(all_day_vars)
+
+        # 3.2) Copertura turni: ogni turno ogni giorno deve essere coperto da esattamente 1 persona
+        for day in days:
+            for shift in all_shifts:
+                shift_vars = [x[(emp_id, day, shift)] for emp_id in employees]
+                model.AddExactlyOne(shift_vars)
+#---------------------------------------------------------------------------------------------------------------------------------------------
+        # 3.3) Esattamente 2 riposi a settimana per ogni dipendente
+        for emp_id in employees:
+            for week_days in weeks.values():
+                if week_days:  # Controlla che la settimana non sia vuota
+                    rest_vars = [has_rest[(emp_id, day)] for day in week_days]
+                    model.Add(sum(rest_vars) >= 2)
+                    model.Add(sum(rest_vars) <= 2)
+#---------------------------------------------------------------------------------------------------------------------------------------------------
+        # 3.4) Necessità obbligatorie dal dizionarioNecessita
+        for emp_id, dip in employees.items():
+            if dip.dizionarioNecessita:
+                for day in days:
+                    day_num = day.day
+
+                    # Ferie obbligatorie
+                    if dip.dizionarioNecessita.get('permessi_ferie', {}).get(day_num, False):
+                        model.Add(has_vacation[(emp_id, day)] == 1)
+
+                    # Mutua obbligatoria
+                    if dip.dizionarioNecessita.get('mutua_infortunio', {}).get(day_num, False):
+                        model.Add(has_vacation[(emp_id, day)] == 1)
+
+                    # Non retribuite obbligatorie
+                    if dip.dizionarioNecessita.get('non_retribuite', {}).get(day_num, False):
+                        model.Add(has_vacation[(emp_id, day)] == 1)
+
+        # --- 4) VINCOLI SOFT (PREFERENZE) ---
+
+        # 4.1) Preferenze per quote settimanali
+        preference_violations = []
+
+        for emp_id, dip in employees.items():
+            target_mattini = int(dip.esigenzeMattiniSettimanali)
+            target_pomeriggi = int(dip.esigenzePomeriggiSettimanali)
+            target_notti = int(dip.esigenzeNottiSettimanali)
+
+            for week_days in weeks.values():
+                if not week_days:
+                    continue
+
+                # Conta turni effettivi per tipo nella settimana
+                mattini_vars = [x[(emp_id, day, shift)]
+                                for day in week_days for shift in shift_types_mattina]
+                pomeriggi_vars = [x[(emp_id, day, shift)]
+                                  for day in week_days for shift in shift_types_pomeriggio]
+                notti_vars = [x[(emp_id, day, shift)]
+                              for day in week_days for shift in shift_types_notte]
+
+                if mattini_vars and target_mattini > 0:
+                    # Variabile di violazione per mattini
+                    under_mattini = model.NewIntVar(0, 10, f'under_mattini_{emp_id}_{week_days[0].isocalendar()[1]}')
+                    over_mattini = model.NewIntVar(0, 10, f'over_mattini_{emp_id}_{week_days[0].isocalendar()[1]}')
+                    model.Add(sum(mattini_vars) + under_mattini - over_mattini == target_mattini)
+                    preference_violations.extend([under_mattini, over_mattini])
+
+                if pomeriggi_vars and target_pomeriggi > 0:
+                    # Variabile di violazione per pomeriggi
+                    under_pom = model.NewIntVar(0, 10, f'under_pom_{emp_id}_{week_days[0].isocalendar()[1]}')
+                    over_pom = model.NewIntVar(0, 10, f'over_pom_{emp_id}_{week_days[0].isocalendar()[1]}')
+                    model.Add(sum(pomeriggi_vars) + under_pom - over_pom == target_pomeriggi)
+                    preference_violations.extend([under_pom, over_pom])
+
+                if notti_vars and target_notti > 0:
+                    # Variabile di violazione per notti
+                    under_notti = model.NewIntVar(0, 10, f'under_notti_{emp_id}_{week_days[0].isocalendar()[1]}')
+                    over_notti = model.NewIntVar(0, 10, f'over_notti_{emp_id}_{week_days[0].isocalendar()[1]}')
+                    model.Add(sum(notti_vars) + under_notti - over_notti == target_notti)
+                    preference_violations.extend([under_notti, over_notti])
+
+        # 4.2) Preferenze negative (no_mattino, no_pomeriggio, no_notte)
+        negative_violations = []
+
+        for emp_id, dip in employees.items():
+            if dip.dizionarioNecessita:
+                for day in days:
+                    day_num = day.day
+
+                    # No mattino
+                    if dip.dizionarioNecessita.get('no_mattino', {}).get(day_num, False):
+                        for shift in shift_types_mattina:
+                            violation = model.NewBoolVar(f'no_matt_viol_{emp_id}_{day_num}_{shift}')
+                            model.Add(x[(emp_id, day, shift)] <= violation)
+                            negative_violations.append(violation)
+
+                    # No pomeriggio
+                    if dip.dizionarioNecessita.get('no_pomeriggio', {}).get(day_num, False):
+                        for shift in shift_types_pomeriggio:
+                            violation = model.NewBoolVar(f'no_pom_viol_{emp_id}_{day_num}_{shift}')
+                            model.Add(x[(emp_id, day, shift)] <= violation)
+                            negative_violations.append(violation)
+
+                    # No notte
+                    if dip.dizionarioNecessita.get('no_notte', {}).get(day_num, False):
+                        for shift in shift_types_notte:
+                            violation = model.NewBoolVar(f'no_notte_viol_{emp_id}_{day_num}_{shift}')
+                            model.Add(x[(emp_id, day, shift)] <= violation)
+                            negative_violations.append(violation)
+
+        # Obiettivo: minimizzare violazioni delle preferenze
+        total_violations = preference_violations + negative_violations
+        if total_violations:
+            model.Minimize(sum(total_violations))
+
+        # --- 5) RISOLUZIONE ---
         solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = 60.0  # Timeout di 60 secondi
+
+        print("Risoluzione del modello in corso...")
         status = solver.Solve(model)
+
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            raise RuntimeError("Nessuna soluzione valida per i vincoli dati")
+            raise RuntimeError(f"Nessuna soluzione trovata. Status: {solver.StatusName(status)}")
 
-            # --- 4) Estrai in struttura per DB e Excel, gestendo necessità e ferie in esubero ---
+        print(f"Soluzione trovata! Status: {solver.StatusName(status)}")
+        if total_violations:
+            print(f"Violazioni preferenze: {solver.ObjectiveValue()}")
+
+        # --- 6) ESTRAZIONE RISULTATI ---
         db_schedule = []
-        rows = []
-        # Per contare i riposi settimanali
-        rest_quota = {}  # eid -> quoziente di riposi settimanali
-        for eid, dip in employees.items():
-            # FTN full-time normale → 2 riposi/settimana; PTN part-time notte → 3
-            rest_quota[eid] = 2 if dip.tipoContratto == 'FTN' else 3
+        excel_rows = []
 
-        # Raggruppa i giorni per settimana ISO
-        weeks = defaultdict(list)
-        for d in days:
-            weeks[d.isocalendar()[1]].append(d)
+        for emp_id, dip in employees.items():
+            name = f"{dip.nome} {dip.cognome} (ID:{emp_id})"
 
-        for eid, dip in employees.items():
-            name = f"{dip.nome} {dip.cognome} (ID:{eid})"
-            prefs = dip.dizionarioNecessita
-            # Conta riposi "normali" assegnati in ogni settimana
-            assigned_rests = {w: [] for w in weeks}
-
-            # Prima pass: estrai turno o riposo per ogni giorno
-            daily_assignment = {}
-            for d in days:
-                # Gestione assenze obbligatorie in base a prefs
-                if prefs.get('permessi_ferie', {}).get(d.day):
-                    tag = 'FERIE'
-                elif prefs.get('mutua_infortunio', {}).get(d.day):
-                    tag = 'MUTUA'
-                elif prefs.get('non_retribuite', {}).get(d.day):
-                    tag = 'NR'
-                else:
-                    # Assegna turno o riposo generico
-                    found = False
-                    for s in all_shifts:
-                        if solver.Value(x[(eid, d, s)]) == 1:
-                            tag = s
-                            found = True
-                            break
-                    if not found:
-                        tag = 'RIPOSO'
-                        week = d.isocalendar()[1]
-                        assigned_rests[week].append(d)
-
-                daily_assignment[d] = tag
-
-            # Seconda pass: trasformiamo in FERIE i riposi "in esubero"
-            for week, rest_days in assigned_rests.items():
-                quota = rest_quota[eid]
-                # I primi `quota` rest_days restano "RIPOSO", il resto diventano "FERIE"
-                for extra_day in rest_days[quota:]:
-                    daily_assignment[extra_day] = 'FERIE'
-
-            # Popola db_schedule e rows
-            for d, tag in daily_assignment.items():
-                ore = 8 if tag in shift_types_8h else (
-                    3 if tag in shift_types_3h else (8 * 0.8 if tag in ['FERIE', 'MUTUA'] else 0))
+            for day in days:
+                day_num = day.day
+                assigned_shift = None
+                shift_type_for_db = None
+                ore_assegnate = 0
                 note = ""
-                if tag == 'FERIE' and not prefs.get('permessi_ferie', {}).get(d.day):
-                    # ferie "in esubero"
-                    note = "Ferie auto"
+
+                # Determina cosa fa il dipendente questo giorno
+                if solver.Value(has_rest[(emp_id, day)]) == 1:
+                    assigned_shift = "RIPOSO"
+                    shift_type_for_db = "RIPOSO"
+                    ore_assegnate = 0
+
+                elif solver.Value(has_vacation[(emp_id, day)]) == 1:
+                    # Determina il tipo specifico di assenza
+                    if dip.dizionarioNecessita:
+                        if dip.dizionarioNecessita.get('permessi_ferie', {}).get(day_num, False):
+                            assigned_shift = "FERIE"
+                            shift_type_for_db = "FERIE"
+                            ore_assegnate = 6.4  # 80% di 8 ore
+                        elif dip.dizionarioNecessita.get('mutua_infortunio', {}).get(day_num, False):
+                            assigned_shift = "MUTUA"
+                            shift_type_for_db = "MUTUA"
+                            ore_assegnate = 6.4  # 80% di 8 ore
+                        elif dip.dizionarioNecessita.get('non_retribuite', {}).get(day_num, False):
+                            assigned_shift = "NR"
+                            shift_type_for_db = "NR"
+                            ore_assegnate = 0
+                        else:
+                            # Ferie automatiche (non dovrebbe succedere con i nuovi vincoli)
+                            assigned_shift = "FERIE"
+                            shift_type_for_db = "FERIE"
+                            ore_assegnate = 6.4
+                            note = "Ferie auto"
+                    else:
+                        assigned_shift = "FERIE"
+                        shift_type_for_db = "FERIE"
+                        ore_assegnate = 6.4
+                        note = "Ferie auto"
+                else:
+                    # Turno lavorativo
+                    for shift in all_shifts:
+                        if solver.Value(x[(emp_id, day, shift)]) == 1:
+                            assigned_shift = shift
+                            shift_type_for_db = shift
+                            ore_assegnate = 8 if shift not in shift_types_corti else 3
+                            break
+
+                    if assigned_shift is None:
+                        raise RuntimeError(f"Errore: dipendente {emp_id} giorno {day_num} senza assegnazione")
+
+                # Aggiungi ai risultati
                 db_schedule.append({
-                    'data_turno': d.isoformat(),
-                    'codice_dipendente': eid,
-                    'tipo_turno': tag,
-                    'ore_assegnate': ore,
+                    'data_turno': day.isoformat(),
+                    'codice_dipendente': emp_id,
+                    'tipo_turno': shift_type_for_db,
+                    'ore_assegnate': ore_assegnate,
                     'note': note
                 })
-                rows.append({'Dipendente': name, 'Giorno': d.day, 'Turno': tag})
-        # Sovrascrivi DB
+
+                excel_rows.append({
+                    'Dipendente': name,
+                    'Giorno': day_num,
+                    'Turno': assigned_shift
+                })
+
+        # --- 7) SALVATAGGIO DATABASE ---
+        print("Salvataggio turni nel database...")
         self.dao.save_turni_mese(year, month, db_schedule)
 
-        # --- 5) Esporta in Excel con formattazione ---
-        df = pd.DataFrame(rows)
+        # --- 8) GENERAZIONE EXCEL ---
+        print("Generazione file Excel...")
+        df = pd.DataFrame(excel_rows)
         pivot = df.pivot(index='Dipendente', columns='Giorno', values='Turno')
+
         filename = f"turni_{year}_{month:02d}.xlsx"
         with pd.ExcelWriter(filename, engine='openpyxl') as writer:
             pivot.to_excel(writer, sheet_name='Turni')
             wb = writer.book
             ws = writer.sheets['Turni']
 
-            # Intestazioni in grassetto e centralizzate
+            # Formattazione intestazioni
             for cell in ws[1]:
-                cell.font = Font(bold=True)
-                cell.alignment = Alignment(horizontal='center')
+                if cell.value:
+                    cell.font = Font(bold=True)
+                    cell.alignment = Alignment(horizontal='center')
 
-            # Colori per tipo turno
+            # Mappa colori per tipo turno
             color_map = {
-                'mat_': 'FFF2CC',  # mattina
-                'pom_': 'D9EAD3',  # pomeriggio
-                'notte': 'CFE2F3',
-                'mj': 'F4CCCC',
-                'pc': 'EAD1DC',
-                'RIP': 'FFFFFF'
+                'mat_': 'FFF2CC',  # Giallo chiaro per mattina
+                'pom_': 'D9EAD3',  # Verde chiaro per pomeriggio
+                'notte': 'CFE2F3',  # Azzurro chiaro per notte
+                'mj': 'F4CCCC',  # Rosa chiaro per mj
+                'pc': 'EAD1DC',  # Viola chiaro per pc
+                'RIPOSO': 'FFFFFF',  # Bianco per riposo
+                'FERIE': 'FCE5CD',  # Arancione chiaro per ferie
+                'MUTUA': 'D0E0E3',  # Grigio azzurro per mutua
+                'NR': 'F4CCCC'  # Rosa per non retribuite
             }
-            for row in ws.iter_rows(min_row=2, min_col=2, max_col=1 + len(days)):
+
+            # Applica colori
+            for row in ws.iter_rows(min_row=2, min_col=2, max_col=1 + dim):
                 for cell in row:
-                    val = str(cell.value or '')
-                    for key, col in color_map.items():
-                        if key in val:
-                            cell.fill = PatternFill("solid", fgColor=col)
-                            break
+                    if cell.value:
+                        val = str(cell.value)
+                        for prefix, color in color_map.items():
+                            if val.startswith(prefix) or val == prefix:
+                                cell.fill = PatternFill("solid", fgColor=color)
+                                cell.alignment = Alignment(horizontal='center')
+                                break
 
             # Regola larghezza colonne
             for idx, column_cells in enumerate(ws.columns, 1):
-                length = max(len(str(c.value)) for c in column_cells) + 2
-                ws.column_dimensions[get_column_letter(idx)].width = length
+                if column_cells:
+                    max_length = max(len(str(cell.value or '')) for cell in column_cells)
+                    adjusted_width = min(max_length + 2, 15)  # Max 15 caratteri
+                    ws.column_dimensions[get_column_letter(idx)].width = adjusted_width
 
-        print(f"File Excel generato e formattato: {filename}")
+        print(f"✅ Turni generati con successo!")
+        print(f"📊 File Excel: {filename}")
+        print(f"💾 Database aggiornato per {year}-{month:02d}")
+
         return filename

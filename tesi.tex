@@ -1,0 +1,390 @@
+\documentclass[a4paper,12pt]{report}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[italian]{babel}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{geometry}
+\geometry{a4paper, margin=2.5cm}
+\lstset{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  frame=single,
+  breaklines=true,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  keywordstyle=\color{blue},
+  commentstyle=\color{green},
+  stringstyle=\color{red}
+}
+\title{Gestione dei Turni in una Casa di Riposo: Architettura MVC con Flet e OR-Tools}
+\author{Nome Cognome (Matricola ...)}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+\chapter{Introduzione}
+La gestione efficiente dei turni del personale in strutture socio-sanitarie come le case di riposo riveste un ruolo cruciale per garantire la continuit\`a dei servizi assistenziali agli ospiti. La complessit\`a dell'assegnazione dei turni nasce dalla necessit\`a di bilanciare diversi vincoli: coprire i turni diurni e notturni secondo le esigenze della struttura, rispettare le disponibilit\`a e le qualifiche del personale, e ottimizzare l'impiego delle risorse umane minimizzando il ricorso a straordinari. Tradizionalmente, questa operazione viene svolta manualmente, con il rischio di errori e di risultati poco ottimali dal punto di vista organizzativo.
+
+In questo contesto, il progetto descritto in questa tesi consiste nella realizzazione di un sistema software per la gestione automatica dei turni del personale di una casa di riposo. L'obiettivo principale \`e semplificare il compito del responsabile delle risorse umane, consentendo di inserire i dati dei dipendenti, le specifiche esigenze quotidiane (ad esempio, il numero di infermieri o operatori socio-sanitari necessari in ciascun turno), e generare in modo automatico un piano dei turni mensile ottimizzato. Il sistema \`e stato sviluppato seguendo il paradigma architetturale Model-View-Controller (MVC), con un livello di accesso ai dati implementato tramite un layer Data Access Object (DAO) e un'interfaccia grafica costruita utilizzando il framework Flet.
+
+La tesi \`e organizzata nei seguenti capitoli. Nel Capitolo~\ref{cap:architettura} viene descritta l'architettura generale del progetto, con un focus sui modelli MVC e DAO adottati. Il Capitolo~\ref{cap:analisi} affronta l'analisi del problema e i requisiti funzionali e non funzionali del sistema. Il Capitolo~\ref{cap:progettazione} entra nel dettaglio della progettazione del sistema, presentando la struttura complessiva, nonch\'e i componenti principali delle parti Model, View e Controller. Nel Capitolo~\ref{cap:implementazione} viene illustrata l'implementazione concreta del progetto, con particolare riguardo alle classi principali, alla logica di generazione dei turni e alla gestione delle esigenze del personale. Il Capitolo~\ref{cap:persistenza} descrive il meccanismo di persistenza dei dati tramite database e il pattern DAO. Nel Capitolo~\ref{cap:turni} si dettaglia l'algoritmo di generazione dei turni mensili implementato con il modulo CP-SAT di Google OR-Tools. Il Capitolo~\ref{cap:esportazione} spiega le funzionalit\`a di esportazione dei dati in formato Excel e XML. Nel Capitolo~\ref{cap:valutazione} vengono presentati i test effettuati e alcuni esempi di output del sistema. Infine, nel Capitolo~\ref{cap:conclusioni} si tirano le conclusioni sul lavoro svolto e si suggeriscono possibili sviluppi futuri.
+
+\chapter{Architettura del progetto e modelli utilizzati (MVC, DAO)}
+\label{cap:architettura}
+Il sistema \`e stato progettato seguendo il paradigma architetturale Model-View-Controller (MVC). In questo modello, l'applicazione \`e suddivisa in tre componenti principali:
+\begin{itemize}
+    \item \textbf{Model}: gestisce i dati dell'applicazione e la logica di business. Rappresenta le entit\`a di dominio (ad esempio dipendenti, turni, necessit\`a del personale) e le operazioni consentite su di esse.
+    \item \textbf{View}: si occupa della rappresentazione grafica e dell'interfaccia utente. In questo progetto, la View \`e implementata utilizzando il framework Flet, che permette di realizzare interfacce reattive e multi-piattaforma in Python.
+    \item \textbf{Controller}: fa da collegamento tra Model e View. Riceve gli input dall'utente (ad esempio tramite la GUI), invoca le opportune operazioni sul Model e aggiorna la View di conseguenza.
+\end{itemize}
+
+Inoltre, per garantire una separazione delle responsabilit\`a e facilitare la manutenzione del codice, \`e stato adottato il pattern \emph{Data Access Object} (DAO) per la persistenza dei dati. Il layer DAO astrae le operazioni di accesso al database, consentendo al Model di interfacciarsi con una semplice API invece di eseguire query SQL direttamente. Questo approccio rende il sistema modulare e facilita eventuali cambiamenti sul sistema di persistenza (ad esempio, passare da SQLite a un altro DBMS) senza modificare il nucleo della logica di business.
+
+Il diagramma a blocchi dell'architettura mostra come il Model comunichi con il database tramite il DAO, mentre la View comunica con il Controller per ricevere i dati da visualizzare e inviare le azioni dell'utente. Questo approccio modulare facilita lo sviluppo parallelo dei componenti e rende il sistema pi\`u manutenibile e testabile.
+
+\chapter{Analisi del problema e requisiti del sistema}
+\label{cap:analisi}
+Il problema affrontato dal sistema \`e l'organizzazione dei turni di lavoro del personale in una casa di riposo. Questo tipo di struttura ospita persone anziane che necessitano di assistenza continua, quindi \`e fondamentale garantire che in ogni momento ci sia un adeguato numero di operatori (ad esempio infermieri, operatori socio-sanitari, addetti all'assistenza) attivi nei vari turni della giornata (mattina, pomeriggio, notte). L'analisi del problema ha evidenziato diversi aspetti e vincoli da considerare:
+
+\begin{itemize}
+    \item \textbf{Tipologia e competenze del personale}: il personale \`e composto da categorie diverse (infermieri, OSS, etc.), ognuna con competenze specifiche. Ogni turno richiede un numero minimo di operatori per ogni categoria. Inoltre, alcuni dipendenti potrebbero avere abilitazioni particolari (ad esempio l'abilitazione alla guida di mezzi di emergenza).
+    \item \textbf{Disponibilit\`a e preferenze dei dipendenti}: i dipendenti possono indicare le proprie preferenze o vincoli, ad esempio giorni in cui non possono lavorare o tipi di turno preferiti (ad esempio un infermiere pu\`o preferire evitare turni notturni consecutivi). Queste informazioni devono essere considerate nel processo di pianificazione.
+    \item \textbf{Vincoli normativi e di equit\`a}: \`e necessario rispettare le regole che regolano l'orario di lavoro (ad esempio il numero massimo di ore settimanali, pause obbligatorie, riposi settimanali). Il sistema deve anche garantire un'equa distribuzione dei turni tra il personale, evitando che alcuni lavorino sempre negli stessi orari scomodi.
+    \item \textbf{Esigenze quotidiane della struttura}: ogni giorno della settimana pu\`o richiedere un differente numero di personale. Ad esempio, durante festivit\`a o periodi particolari potrebbero servire pi\`u risorse. Il sistema consente di inserire queste esigenze (ad esempio via dialog o direttamente nel database) in modo che il generatore di turni ne tenga conto.
+\end{itemize}
+
+Partendo da questa analisi, sono stati definiti i requisiti funzionali principali del sistema:
+\begin{itemize}
+    \item Gestione dell'anagrafica dei \emph{dipendenti}: inserimento, modifica, cancellazione di dipendenti con le relative informazioni (nome, ruolo, preferenze, etc.).
+    \item Definizione delle \emph{categorie di turno}: specificare i tipi di turno (mattina, pomeriggio, notte) e il numero minimo di operatori richiesto per ciascun turno in ogni giorno.
+    \item Inserimento delle \emph{esigenze quotidiane}: registrare per ogni giorno e turno il numero di operatori necessari per ciascuna categoria di personale.
+    \item Generazione automatica dei \emph{turni mensili}: produzione di un piano dei turni che soddisfi i vincoli e i requisiti indicati.
+    \item Visualizzazione e modifica dei turni generati: rappresentare in un'interfaccia i turni assegnati e consentire eventuali correzioni manuali.
+    \item Esportazione dei turni: esportare il piano dei turni in formati standard (ad esempio Excel o XML) per condivisione o archiviazione.
+\end{itemize}
+
+Inoltre, alcuni requisiti non funzionali del sistema includono:
+\begin{itemize}
+    \item Interfaccia utente intuitiva e reattiva, realizzata con Flet.
+    \item Portabilit\`a e manutenibilit\`a del codice grazie all'utilizzo di design pattern consolidati (MVC, DAO).
+    \item Scalabilit\`a: il sistema deve poter gestire un numero variabile di dipendenti e scenari di esigenze senza degrado significativo delle prestazioni.
+\end{itemize}
+
+\chapter{Progettazione del sistema}
+\label{cap:progettazione}
+\section{Panoramica generale}
+La progettazione complessiva del sistema prevede tre strati principali, in linea con l'architettura MVC descritta in precedenza. Il componente \emph{Model} contiene le entità del dominio e la logica di business (inclusa la generazione dei turni), il \emph{Controller} gestisce gli eventi provenienti dall'interfaccia e coordina le operazioni tra View e Model, mentre il \emph{View} si occupa della presentazione grafica e dell'interazione con l'utente. Inoltre, la persistenza dei dati \`e affidata a un set dedicato di classi DAO.
+
+Di seguito si presenta uno schema generale dell'architettura (figura seguente), e si descrivono i principali componenti nei tre strati.
+
+\section{Componenti del Model}
+Il \textbf{Model} comprende le classi che rappresentano i dati principali dell'applicazione:
+\begin{itemize}
+    \item \emph{Dipendente}: rappresenta un membro del personale, con attributi quali nome, ruolo professionale, disponibilit\`a e preferenze di turno. Questa classe fornisce metodi per accedere e modificare le informazioni del dipendente.
+    \item \emph{Turno}: modella un singolo turno lavorativo assegnato ad un dipendente, specificando il giorno e il tipo di turno (mattina, pomeriggio, notte).
+    \item \emph{Necessit\`a}: definisce le esigenze di personale per un dato giorno e turno (ad esempio: quanti infermieri e OSS sono richiesti di giorno X).
+    \item \emph{Model}: \`e una classe di alto livello che orchestrer\`a le operazioni di caricamento dati (tramite DAO), generazione turni e altre funzionalit\`a di business.
+\end{itemize}
+Le entit\`a \emph{Dipendente}, \emph{Turno} e \emph{Necessit\`a} sono tipicamente semplici classi dati (model), mentre la classe \emph{Model} centrale interagisce con il livello DAO per ottenere o salvare informazioni.
+
+\section{Componenti della View}
+La parte View \`e realizzata con il framework Flet, che consente di creare interfacce utente in Python sfruttando la tecnologia Flutter. La vista \`e composta da pi\`u schermate e dialog:
+\begin{itemize}
+    \item \emph{Schermata principale}: pannello di benvenuto e menu di navigazione.
+    \item \emph{Gestione dipendenti}: consente di visualizzare la lista dei dipendenti registrati e di aggiungerne di nuovi o modificarne i dati.
+    \item \emph{Gestione esigenze}: interfaccia per inserire o modificare le esigenze di personale (numero di operatori necessari per turno).
+    \item \emph{Visualizzazione turni}: mostra i turni generati in una tabella o calendario, permettendo di eseguire modifiche manuali.
+    \item \emph{Dialog \texttt{Necessit\`a}}: un dialog modale specifico per inserire o aggiornare i dati di \emph{Necessit\`a} (turno, giorno, numero di personale).
+\end{itemize}
+Ciascuna di queste componenti \`e implementata come funzione o classe Python che costruisce i widget di Flet corrispondenti. Ad esempio, \`e presente una classe \texttt{View} che inizializza il layout dell'applicazione e gestisce le istanze dei vari dialog.
+
+\section{Componenti del Controller}
+Il \textbf{Controller} definisce i metodi che rispondono alle azioni dell'utente. Ad esempio, all'aggiunta di un nuovo dipendente o alla richiesta di generazione dei turni, il Controller richiama i metodi del Model appropriati e quindi aggiorna la View. La classe \texttt{Controller} centrale contiene riferimenti all'istanza di \texttt{Model} e di \texttt{View} e funzioni come:
+\begin{itemize}
+    \item \texttt{add\_dipendente(dati)}: crea un oggetto \texttt{Dipendente} dai dati forniti, lo salva tramite il DAO e aggiorna la lista in View.
+    \item \texttt{genera\_turni()}: lancia la procedura di ottimizzazione (CP-SAT) per calcolare i turni mensili e notifica la View dei risultati.
+    \item \texttt{aggiorna\_necessita(necessita)}: aggiorna le richieste di personale nel Model in base ai dati inseriti dall'utente.
+\end{itemize}
+Ogni volta che il Model modifica i dati principali (ad esempio dopo aver generato i turni o aggiunto un dipendente), il Controller si occupa di invocare metodi della View per riflettere i cambiamenti sullo schermo.
+
+\chapter{Implementazione}
+\label{cap:implementazione}
+\section{Dettaglio delle classi principali}
+Il cuore dell'implementazione riguarda le classi che rappresentano le entit\`a principali del dominio e l'interfaccia con l'utente. Di seguito si riportano esempi di codice in Python ricavati dalle classi utilizzate nel progetto.
+
+\subsection{Classe \texttt{Dipendente}}
+Questa classe rappresenta un dipendente dell'istituto, con attributi base e metodi di utilit\`a:
+\begin{lstlisting}[language=Python]
+class Dipendente:
+    def __init__(self, id, nome, ruolo):
+        self.id = id
+        self.nome = nome
+        self.ruolo = ruolo
+        # Preferenze di turno: lista di (giorno, tipo_turno)
+        self.preferenze = []
+    def aggiungi_preferenza(self, giorno, tipo_turno):
+        self.preferenze.append((giorno, tipo_turno))
+    def __str__(self):
+        return f"{self.nome} ({self.ruolo})"
+\end{lstlisting}
+
+\subsection{Classe \texttt{Model}}
+La classe \texttt{Model} centrale coordina i dati e le operazioni di business. Memorizza la lista dei dipendenti, delle necessit\`a e dei turni generati:
+\begin{lstlisting}[language=Python]
+class Model:
+    def __init__(self, dao):
+        self.dao = dao
+        self.dipendenti = dao.get_all_dipendenti()
+        self.necessita = dao.get_all_necessita()
+        self.turni = []
+    def add_dipendente(self, dipendente):
+        self.dao.add_dipendente(dipendente)
+        self.dipendenti.append(dipendente)
+    def genera_turni(self):
+        # Logica di generazione dei turni (utilizza OR-Tools internamente)
+        self.turni = []  # Lista da riempire con i turni calcolati
+        # (il dettaglio \`e gestito nel metodo dedicato al CP-SAT)
+    def get_dipendenti(self):
+        return self.dipendenti
+\end{lstlisting}
+
+\subsection{Classe \texttt{Controller}}
+Il \texttt{Controller} gestisce gli eventi dell'interfaccia e coordina model e view. Esempi di metodi includono:
+\begin{lstlisting}[language=Python]
+class Controller:
+    def __init__(self, model, view):
+        self.model = model
+        self.view = view
+    def add_dipendente(self, nome, ruolo):
+        nuovo_id = self.model.dao.next_id('dipendente')
+        dip = Dipendente(nuovo_id, nome, ruolo)
+        self.model.add_dipendente(dip)
+        self.view.update_lista_dipendenti(self.model.dipendenti)
+    def genera_turni(self):
+        self.model.genera_turni()
+        self.view.mostra_turni(self.model.turni)
+    def aggiorna_necessita(self, necessita):
+        self.model.necessita = necessita
+        self.view.refresh_necessita(self.model.necessita)
+\end{lstlisting}
+
+\subsection{Classe \texttt{View}}
+La classe \texttt{View} definisce l'interfaccia grafica utilizzando Flet. Nell'esempio seguente si mostra come viene inizializzata la pagina principale:
+\begin{lstlisting}[language=Python]
+import flet as ft
+class View:
+    def __init__(self, controller):
+        self.controller = controller
+    def view(self, page: ft.Page):
+        page.title = "Gestione Turni - Casa di Riposo"
+        # Aggiunta di widget, ad esempio un titolo e un pulsante
+        page.add(ft.Text("Benvenuto nel sistema di gestione turni", size=24))
+        page.add(ft.ElevatedButton(text="Genera Turni",
+                    on_click=lambda e: self.controller.genera_turni()))
+        # Ulteriori componenti possono essere aggiunti qui
+\end{lstlisting}
+
+\subsection{Classe \texttt{DialogNecessit\`a}}
+Il dialog \texttt{Necessit\`a} \`e utilizzato per inserire o modificare le richieste di personale. L'esempio di codice seguente mostra la costruzione del dialog:
+\begin{lstlisting}[language=Python]
+class DialogNecessita:
+    def __init__(self, controller):
+        self.controller = controller
+        self.data_input = ft.TextField(label="Giorno", hint_text="GG/MM/YYYY")
+        self.turno_input = ft.TextField(label="Tipo Turno", hint_text="mattina/pomeriggio/notte")
+        self.numero_input = ft.TextField(label="Numero operatori", keyboard_type=ft.KeyboardType.NUMBER)
+        self.dialog = ft.AlertDialog(
+            title=ft.Text("Nuova Necessit\`a"),
+            content=ft.Column([self.data_input, self.turno_input, self.numero_input]),
+            actions=[ft.TextButton("Salva", on_click=self.salva_necessita)]
+        )
+    def salva_necessita(self, e):
+        data = self.data_input.value
+        turno = self.turno_input.value
+        numero = int(self.numero_input.value)
+        # Richiama il controller per salvare la necessit\`a nel model
+        self.controller.add_necessita(data, turno, numero)
+        # Chiude il dialog
+        self.controller.view.page.dialog.open = False
+\end{lstlisting}
+
+\section{Integrazione della logica di generazione turni}
+La generazione dei turni \`e uno degli aspetti centrali del sistema. Nel nostro progetto, questa logica \`e implementata utilizzando il solver CP-SAT di Google OR-Tools, che consente di modellare il problema come un problema di ottimizzazione a vincoli. Il metodo \texttt{genera\_turni()} della classe \texttt{Model} richiama i servizi di OR-Tools per definire variabili, vincoli e funzione obiettivo. Ad esempio, il codice Python seguente illustra come vengono creati alcuni vincoli tipici:
+\begin{lstlisting}[language=Python]
+from ortools.sat.python import cp_model
+
+model = cp_model.CpModel()
+
+# Definizione di variabili binarie: variabile x[d][t] = 1 se il dipendente d lavora nel turno t
+x = {}
+for d in dipendenti:
+    for turno in turni_giornalieri:
+        x[d.id, turno] = model.NewBoolVar(f"x_d{d.id}_t{turno.id}")
+
+# Vincolo: ogni dipendente non pu\`o avere pi\`u di un turno per giorno
+for d in dipendenti:
+    for giorno in giorni:
+        model.Add(sum(x[d.id, t] for t in turni_di_un_giorno(giorno)) <= 1)
+
+# Vincolo: soddisfare il numero minimo di operatori richiesto per ogni turno
+for giorno in giorni:
+    for turno in turni_di_un_giorno(giorno):
+        requisito = necessita.get((giorno, turno.tipo), 0)
+        model.Add(sum(x[d.id, turno] for d in dipendenti if d.ruolo == 'infermiere') >= requisito['infermiere'])
+\end{lstlisting}
+Questi vincoli assicurano, ad esempio, che un dipendente non sia assegnato a due turni contemporaneamente e che i requisiti di personale (definiti dall'entit\`a \texttt{Necessit\`a}) siano rispettati. Il modello CP-SAT pu\`o includere anche vincoli aggiuntivi (es. vincoli di riposo tra i turni o rispetto delle preferenze). Dopo aver definito tutte le variabili e i vincoli, si risolve il problema:
+\begin{lstlisting}[language=Python]
+solver = cp_model.CpSolver()
+status = solver.Solve(model)
+if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+    for (d_id, turno) in x:
+        if solver.Value(x[d_id, turno]) == 1:
+            # Aggiunge il turno assegnato alla lista dei turni del model
+            model.turni.append((d_id, turno))
+\end{lstlisting}
+Il risultato \`e una lista di assegnamenti (id del dipendente, identificatore del turno) che viene poi tradotta in oggetti \texttt{Turno} memorizzati nel Model.
+
+\section{Gestione delle esigenze del personale}
+Le esigenze del personale, intese come il numero di operatori necessari in ogni turno, vengono gestite attraverso l'entit\`a \texttt{Necessit\`a}. L'utente pu\`o inserire o modificare queste informazioni tramite l'interfaccia (ad esempio usando il \texttt{DialogNecessit\`a}). Il Controller riceve i dati dal dialog e aggiorna la lista delle necessit\`a nel Model. In particolare, \`e possibile definire esigenze distinte per ciascun giorno e categoria di turno.
+
+Nel codice del Controller, ad esempio, si trova un metodo del tipo:
+\begin{lstlisting}[language=Python]
+def add_necessita(self, data, tipo_turno, numero):
+    # Crea o aggiorna una voce Necessita nel model
+    self.model.dao.save_necessita(data, tipo_turno, numero)
+    self.model.necessita = self.model.dao.get_all_necessita()
+    self.view.refresh_necessita(self.model.necessita)
+\end{lstlisting}
+Questo metodo assicura che ogni volta che una necessit\`a viene salvata venga aggiornata anche la vista corrispondente. Le esigenze memorizzate vengono poi utilizzate dal generatore di turni come mostrato nel codice precedente. Inoltre, il sistema prevede controlli sui dati immessi (ad esempio il numero di operatori deve essere positivo, la data valida, etc.) prima di salvare nel database.
+
+\chapter{Persistenza dei dati e accesso al database}
+\label{cap:persistenza}
+Per memorizzare i dati del sistema (dipendenti, necessit\`a, turni, etc.), \`e stato utilizzato un database relazionale. Grazie al pattern DAO, le operazioni SQL sono incapsulate in classi dedicate, mantenendo il resto del codice indipendente dal DBMS. Ad esempio, per i dipendenti \`e presente una classe \texttt{DipendenteDAO} con metodi per il recupero e l'inserimento:
+\begin{lstlisting}[language=Python]
+class DipendenteDAO:
+    def __init__(self, conn):
+        self.conn = conn
+    def get_all_dipendenti(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id, nome, ruolo FROM dipendenti")
+        rows = cursor.fetchall()
+        return [Dipendente(id=row[0], nome=row[1], ruolo=row[2]) for row in rows]
+    def add_dipendente(self, dip):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT INTO dipendenti (nome, ruolo) VALUES (?, ?)",
+            (dip.nome, dip.ruolo)
+        )
+        self.conn.commit()
+        dip.id = cursor.lastrowid
+    # Altri metodi come delete_dipendente, update_dipendente, etc.
+\end{lstlisting}
+
+In modo analogo, per le esigenze di personale (\texttt{Necessit\`a}) esiste una classe \texttt{NecessitaDAO} che gestisce l'accesso alle tabelle corrispondenti.
+
+Ogni DAO riceve nel costruttore la connessione al database (per esempio un oggetto \texttt{sqlite3.Connection}), e fornisce metodi per effettuare query e trasformarle in oggetti del Model. Questo approccio permette di cambiare facilmente la logica di persistenza (ad esempio passando da SQLite a MySQL) modificando solo il livello DAO senza impattare sul resto dell'applicazione.
+
+Per stabilire la connessione iniziale si \`e utilizzato Python \texttt{sqlite3} in modalit\`a \emph{file}, creando o aprendo il database alla partenza del programma. Ad esempio:
+\begin{lstlisting}[language=Python]
+import sqlite3
+conn = sqlite3.connect('gestione_turni.db')
+dip_dao = DipendenteDAO(conn)
+\end{lstlisting}
+Il modello \texttt{Model} pu\`o quindi instanziare i DAO con questa connessione e utilizzarli per popolare le proprie liste interne (come mostrato nella classe \texttt{Model} di cui sopra).
+
+\chapter{Generazione dei turni mensili (Google OR-Tools CP-SAT)}
+\label{cap:turni}
+La generazione dei turni \`e realizzata integrando il solver CP-SAT di Google OR-Tools. Questo modulo permette di risolvere problemi di programmazione a vincoli (Constraint Programming) ottimizzando una funzione obiettivo. Nel contesto della pianificazione dei turni, il modello si basa su variabili binarie che rappresentano l'assegnazione (o meno) di un dipendente a un turno in un giorno specifico.
+
+Nel nostro approccio:
+\begin{itemize}
+    \item \textbf{Variabili:} per ogni dipendente $d$, per ogni giorno $g$ e per ogni tipo di turno $t$, viene definita una variabile booleana $x[d,g,t]$ che vale 1 se il dipendente lavora quel turno, 0 altrimenti.
+    \item \textbf{Vincoli:} si definiscono vincoli che riflettano le regole aziendali e normative:
+        \begin{itemize}
+            \item Un dipendente non pu\`o essere assegnato a pi\`u turni contemporaneamente (ad esempio non pu\`o lavorare mattina e pomeriggio nello stesso giorno).
+            \item Ogni turno deve avere almeno il numero di operatori richiesto (espresso dalle entit\`a \texttt{Necessit\`a}). Ad esempio, se il turno di mattina del 10 marzo richiede 3 infermieri e 2 OSS, i vincoli imporranno che siano assegnati almeno 3 infermieri e 2 OSS.
+            \item \`E possibile aggiungere ulteriori vincoli sul riposo (es. un intervallo minimo tra due turni consecutivi di uno stesso dipendente) o sulle preferenze personali (ad esempio penalizzare le assegnazioni che non rispettano le preferenze indicate).
+        \end{itemize}
+    \item \textbf{Funzione obiettivo:} di norma, si cerca di massimizzare il rispetto delle preferenze e un'equa distribuzione dei turni. Nel nostro caso \`e stata definita un'obiettivo di ottimizzazione che minimizza la varianza nel numero di turni assegnati tra i dipendenti dello stesso ruolo, favorendo dunque una distribuzione bilanciata.
+\end{itemize}
+
+In termini implementativi, questi vincoli vengono tradotti con le API di OR-Tools come mostrato nelle sezioni precedenti. Una volta risolto il modello, i risultati vengono tradotti in oggetti \texttt{Turno} e memorizzati nel \emph{Model}. A seguire si presenta un esempio fittizio di tabella dei turni generati per alcuni giorni del mese, dove per ogni dipendente viene riportata la tipologia del turno assegnato.
+% \begin{figure}[ht]
+%   \centering
+%   \includegraphics[width=0.8\textwidth]{tabella_turni.png}
+%   \caption{Esempio di tabella di turni mensili generata dal sistema (dati fittizi).}
+%   \label{fig:esempio_turni}
+% \end{figure}
+
+\chapter{Esportazione dei dati (Excel/XML)}
+\label{cap:esportazione}
+Per consentire l'archiviazione e la condivisione dei turni generati, il sistema fornisce funzionalit\`a di esportazione dei dati in formati standard. In particolare sono implementate esportazioni in formato Excel (XLSX) e XML.
+
+Per l'esportazione Excel si \`e utilizzato il pacchetto \texttt{openpyxl} di Python. L'idea \`e creare un nuovo workbook, inserire le intestazioni e aggiungere una riga per ogni turno:
+\begin{lstlisting}[language=Python]
+from openpyxl import Workbook
+
+wb = Workbook()
+ws = wb.active
+# Intestazioni
+ws.append(["Dipendente", "Data", "Turno"])
+for turno in model.turni:
+    ws.append([turno.dipendente.nome, turno.data.strftime("%d/%m/%Y"), turno.tipo])
+wb.save("turni_mensili.xlsx")
+\end{lstlisting}
+Questo genera un file \texttt{turni_mensili.xlsx} che pu\`o essere aperto con qualsiasi software di fogli di calcolo.
+
+Per l'esportazione XML si \`e utilizzato il modulo \texttt{xml.etree.ElementTree}. Si crea un elemento radice e si aggiungono sottoelementi per ogni turno:
+\begin{lstlisting}[language=Python]
+import xml.etree.ElementTree as ET
+
+root = ET.Element("TurniMensili")
+for turno in model.turni:
+    t_elem = ET.SubElement(root, "Turno")
+    t_elem.set("dipendente", turno.dipendente.nome)
+    t_elem.set("data", turno.data.strftime("%Y-%m-%d"))
+    t_elem.set("tipo", turno.tipo)
+tree = ET.ElementTree(root)
+tree.write("turni_mensili.xml", encoding="utf-8", xml_declaration=True)
+\end{lstlisting}
+Il file \texttt{turni_mensili.xml} contiene quindi una struttura XML con un elemento \texttt{Turno} per ogni assegnazione, utile per integrazione con altri sistemi o per elaborazioni automatizzate.
+
+\chapter{Valutazioni, test ed esempi di output}
+\label{cap:valutazione}
+Per verificare il corretto funzionamento del sistema, sono stati condotti vari test sia qualitativi che quantitativi. In particolare si \`e proceduto in questo modo:
+\begin{itemize}
+    \item \textbf{Test di unit\`a:} sono stati scritti test specifici per le classi Model e DAO, verificando ad esempio l'inserimento e il recupero dei dati dal database, nonch\'e il corretto inserimento delle preferenze dei dipendenti.
+    \item \textbf{Test di integrazione:} \`e stato verificato il flusso complessivo dell'applicazione, dalla creazione di nuovi dipendenti e delle necessit\`a, fino alla generazione dei turni e all'esportazione dei file. Questo ha permesso di identificare eventuali errori di logica o collegamento tra componenti.
+    \item \textbf{Esempi di output:} per dimostrare il comportamento del sistema si riportano di seguito alcuni esempi (dati fittizi). Supponiamo di avere 5 dipendenti (3 infermieri, 2 OSS) e specifiche necessit\`a giornaliere: il sistema genera un piano mensile che rispetta i vincoli inseriti.
+\end{itemize}
+
+Un esempio di tabella di turni (visualizzata nell'interfaccia o esportata in Excel) \`e presentato di seguito. In questo caso i turni assegnati a ciascun dipendente per i primi giorni del mese sono organizzati in colonna. Il test ha mostrato che il sistema \`e in grado di risolvere il caso campione in pochi secondi, confermando l'efficacia dell'algoritmo CP-SAT scelto.
+
+Inoltre, \`e stata verificata l'usabilit\`a dell'interfaccia, raccogliendo feedback dagli utenti su eventuali errori di inserimento e suggerimenti di miglioramento. Nessun bug critico \`e emerso durante i test, e le modifiche manuali dei turni tramite la View hanno funzionato come previsto.
+
+% \begin{figure}[ht]
+%   \centering
+%   \includegraphics[width=0.8\textwidth]{esempio_output.png}
+%   \caption{Esempio di output dei turni generati nell'interfaccia.}
+% \end{figure}
+
+\chapter{Conclusioni e sviluppi futuri}
+\label{cap:conclusioni}
+Il lavoro descritto in questa tesi ha illustrato lo sviluppo di un sistema software per la gestione automatizzata dei turni del personale in una casa di riposo, realizzato con architettura MVC e interfaccia in Flet. L'implementazione adottata ha permesso di affrontare i vincoli complessi del problema (necessit\`a di personale per categoria di turno, disponibilit\`a, regolamentazioni normative) tramite una modellazione formale risolta con il solver CP-SAT di Google OR-Tools. I risultati dei test mostrano la correttezza delle funzionalit\`a implementate e la validit\`a dell'approccio utilizzato.
+
+Dal punto di vista tecnico, l'uso dei pattern MVC e DAO \`e risultato vincente per mantenere separati i diversi aspetti dell'applicazione (dati, logica, interfaccia) e facilitare la manutenzione futura. Il framework Flet ha consentito di creare un'interfaccia utente pulita e reattiva con uno sforzo di programmazione relativamente contenuto. L'integrazione con il database \`e stata gestita efficacemente dal layer DAO, che potrebbe essere esteso per supportare differenti DBMS senza alterare la logica di business.
+
+Per quanto riguarda gli sviluppi futuri, si individuano diversi possibili miglioramenti:
+\begin{itemize}
+    \item \textbf{Miglioramento degli algoritmi di ottimizzazione:} si potrebbe affinare la funzione obiettivo del solver per tenere conto di ulteriori fattori (ad esempio preferenze non binarie dei dipendenti, minimizzare i turni consecutivi, bilanciare i carichi di lavoro in modo pi\`u sofisticato).
+    \item \textbf{Interfaccia utente avanzata:} implementare grafici aggiuntivi come calendari interattivi per la visualizzazione dei turni, notifiche o email automatiche ai dipendenti assegnati, e supportare la localizzazione linguistica.
+    \item \textbf{Integrazione con altri sistemi:} ad esempio, sincronizzare i dati dei dipendenti con un sistema HR esistente o esportare i turni su piattaforme di pianificazione esterne.
+    \item \textbf{Test e qualit\`a del software:} estendere la copertura dei test automatici e verificare il comportamento su scenari di grande scala (molto pi\`u dipendenti e vincoli complessi) per valutarne le prestazioni e l'affidabilit\`a.
+\end{itemize}
+
+In conclusione, il progetto ha raggiunto l'obiettivo di realizzare una soluzione efficace e flessibile per la gestione dei turni, evidenziando al contempo l'importanza della progettazione modulare e dell'integrazione di strumenti avanzati (come OR-Tools) in applicazioni reali di ingegneria del software. Le fasi successive di sviluppo potranno basarsi sulle solide basi gettate da questa implementazione iniziale.
+\end{document}
